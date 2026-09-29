@@ -15,13 +15,16 @@
 # preset"), so the preset must mount them itself.
 
 - insert:
-    # keep_thinking: text-only control flow for multi-round reasoning. Registered
-    # at the profile layer, so every preset's agents can see it; the 纯对话
-    # persona is what teaches when to reach for it.
+    # keep_thinking: text-only control flow for multi-round reasoning. The row
+    # must sit at the profile layer (a profile-local package name cannot resolve
+    # from a preset's subtree), which makes the tool global; the plugin takes it
+    # back per agent and keeps it only inside `visibleInPresets`.
     - id: think-better-tool
       name: 'think_better'
       config:
         maxRounds: 10
+        visibleInPresets:
+          - chat
 
     - id: preset-chat
       name: '@deepseek-ai/dsh-agent-preset'

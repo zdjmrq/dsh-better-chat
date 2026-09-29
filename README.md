@@ -108,6 +108,7 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 
 | 行 | 参数 | 默认 | 说明 |
 |---|---|---|---|
+| `think-better-tool` | `visibleInPresets` | `['chat']` | 只在列出的模式里可见。不在列表里的模式，其 agent 创建时会被 `tools.restrict()` 移除 `keep_thinking` |
 | `persona` | `prefix` | 见下 | 人设文本，**可自由替换** |
 | `persona` | `suffix` | `'当前工作目录是 {{cwd}}。'` | 见 [为什么 suffix 不能留空](#为什么-suffix-不能留空) |
 | `persona` | `includeRuntimeContext` | `true` | 是否注入运行时上下文（时间等）。设 `false` 提示词更干净，但模型不知道当前日期 |
@@ -215,7 +216,9 @@ keep-thinking (think_better): never started
 
 （`never started` 在 `packages/preset/agent-preset-registry/src/mount.ts` 中等价于「模块根本没解析成功」。）
 
-**代价**：宿主层注册是全局的，所以 `keep_thinking` 对**所有模式**可见（其它模式也会多出这一个工具）。这是 DSH 当前的放置规则，绕不过去。
+**代价与处理**：宿主层注册是全局的，所以默认情况下 `keep_thinking` 对**所有模式**可见。插件在每个 agent 创建时用 `tools.restrict({ deny: ['keep_thinking'] })` 把它从其它模式的作用域里移除，只保留 `visibleInPresets` 列出的模式（默认 `chat`）——所以最终只有「纯对话」看得到它。
+
+这也是 tools 服务自己指定的做法，它的报错原文是：*"a context-global restriction would mask every agent — **deny the tool for the intended agent instead**"*。
 
 ---
 
@@ -229,7 +232,7 @@ dsh plugin --profile <你的profile> remove think_better
 
 ## 已知限制
 
-- `keep_thinking` 全局可见（见上节）。
+- `keep_thinking` 的可见性由 `visibleInPresets` 控制。判定依据是会话头里的 `agentPreset`；**只有明确识别出别的模式时才移除**，所以即使某条创建路径没填这个字段，也只会让该会话多看到一个工具，不会误伤「纯对话」。
 - `tool-fs` **带写权限**。想要只读，把会话权限切到 profile 里的 `read-only` 预设。
 - `keep_thinking` 在对话记录里渲染为**通用工具卡片**。想做成定制的"思考"卡片，需要另写一个 Client 插件在 `tool.call.toolview` 槽位注册组件。
 - 插件依赖 DSH 内部插件 id（`@deepseek-ai/dsh-*`）。DSH 升级后若某个 id 改名，需要同步更新 `cordis.patch.yml`。
