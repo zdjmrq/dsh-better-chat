@@ -42,20 +42,19 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 
 ## 挂载了哪些插件
 
-**全部内容就是 [`cordis.patch.yml`](./cordis.patch.yml) 里的两行。**
+**全部内容就是 [`cordis.patch.yml`](./cordis.patch.yml) 里的**一个** preset 声明。**
 
 ### 宿主层（profile 层）
 
-| 行 id | 包 | 配置 | 作用 |
-|---|---|---|---|
-| `think-better-tool` | `think_better`（本仓库） | `maxRounds: 10` | 注册 `keep_thinking` 工具 |
-
-> ⚠️ **这一行必须留在宿主层**，不能挪进下面的 preset。原因见 [「一条硬约束」](#一条硬约束为什么-keep_thinking-不在-preset-内部)。
+**空的。** 本 bundle 以前在这里放一行 `think-better-tool`，现在没有了——原因见 [「为什么工具行在 preset 里面」](#为什么工具行在-preset-里面)。
 
 ### preset 层（模式内部）
 
+5 个官方工具行 + 本仓库自己的工具行，全部挂在 `preset-chat` 的 `config.plugins` 里：
+
 | 行 id | 包 | 配置 | 提供的工具 |
 |---|---|---|---|
+| `think-better-tool` | `think_better`（本仓库），以**绝对 file URL** 引入 | `maxRounds: 10` | `keep_thinking` |
 | `persona` | `@deepseek-ai/dsh-persona` | 见 [persona](#persona可自行更换) | —（系统提示词） |
 | `tool-web` | `@deepseek-ai/dsh-tool-web` | `fetch: true`<br>`searchTimeoutMs: 60000` | `web_search` `web_fetch` |
 | `tool-ask-user` | `@deepseek-ai/dsh-tool-ask-user` | — | `ask_user_question` |
@@ -64,6 +63,8 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 | `present` | `@deepseek-ai/dsh-tool-present` | — | `present` |
 
 **合计 11 个工具。** 实测「纯对话」一轮实际下发 **25 个工具**——多出来的 14 个来自宿主层的其它 bundle，见 [已知限制](#已知限制)。
+
+> 因为工具行**就在 preset 里**，`ctx.tools.register()` 走的是 preset 的作用域：只有「纯对话」的 agent 看得见它，其它模式**不需要被摘掉任何东西**。
 
 ### 刻意没有挂的
 
@@ -88,10 +89,15 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 ### `maxRounds` —— 唯一需要理解的参数
 
 ```yaml
-- id: think-better-tool
-  name: 'think_better'
+- id: preset-chat
+  name: '@deepseek-ai/dsh-agent-preset'
   config:
-    maxRounds: 10      # ← 改这里
+    id: chat
+    plugins:
+      - id: think-better-tool
+        name: 'file:///…/think_better/lib/index.js'
+        config:
+          maxRounds: 10      # ← 改这里
 ```
 
 `maxRounds` 是**每个用户轮次**允许的思考轮数上限（每个 `turn/start` 清零）。它的行为：
@@ -108,7 +114,7 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 
 | 行 | 参数 | 默认 | 说明 |
 |---|---|---|---|
-| `think-better-tool` | `visibleInPresets` | `['chat']` | 只在列出的模式里可见。不在列表里的模式，其 agent 创建时会被 `tools.restrict()` 移除 `keep_thinking` |
+| `think-better-tool` | `maxRounds` | `10` | 见上 |
 | `persona` | `prefix` | 见下 | 人设文本，**可自由替换** |
 | `persona` | `suffix` | `'当前工作目录是 {{cwd}}。'` | 见 [为什么 suffix 不能留空](#为什么-suffix-不能留空) |
 | `persona` | `includeRuntimeContext` | `true` | 是否注入运行时上下文（时间等）。设 `false` 提示词更干净，但模型不知道当前日期 |
@@ -188,53 +194,68 @@ dsh plugin --profile <你的profile> add "<clone 出来的绝对路径>"
 
 ---
 
-## 一条硬约束：为什么 `keep_thinking` 不在 preset 内部
+## 为什么工具行在 preset 里面
 
-`cordis.patch.yml` 里那两行**是平级的**，这不是排版疏忽，也不能"整理"进 preset。
+`cordis.patch.yml` 里**只有一行**（`preset-chat`）；`keep_thinking` 是它 `config.plugins` 里的一个子行，而且用**绝对 file URL** 而不是包名引入：
 
-DSH 的运行时解析器只在**导入方属于 profile 层**时，才把 profile 本地包名交给 Node 原生解析：
-
-```ts
-// packages/boot/app-boot/src/profile-resolution/resolver.ts
-if (name === undefined || layer.kind !== 'profile' || !resolution.localPackageNames.has(name)) return undefined
+```yaml
+- id: think-better-tool
+  name: 'file:///E:/DeepSeekHarness_own_plugin/think_better/lib/index.js'
+  config:
+    maxRounds: 10
 ```
 
-而且 profile 本地 bundle **自己的包名被显式排除**在共享解析表之外：
+### 为什么不能用包名
 
-```ts
-// packages/boot/app-boot/src/profile.ts
-for (const layer of profile.layers) bundleLinks.delete(layer.packageName)
-```
-
-preset 的插件挂载在注册表拥有的**内存隔离子树**里，其解析基准是 `@deepseek-ai/dsh-agent-preset` 自己的包目录（在 `app.asar` 内）。那里躺着全套官方 `@deepseek-ai/*` 包，所以**安装包能解析**；**profile 本地包名不能**。
-
-违反这条的后果是加载失败，诊断信息为：
+用裸包名 `think_better` 时会失败，诊断是：
 
 ```
-keep-thinking (think_better): never started
+think-better-tool (think_better): never started
 ```
 
 （`never started` 在 `packages/preset/agent-preset-registry/src/mount.ts` 中等价于「模块根本没解析成功」。）
 
-**代价与处理**：宿主层注册是全局的，所以默认情况下 `keep_thinking` 对**所有模式**可见。插件用 `tools.restrict({ deny: ['keep_thinking'] })` 把它从其它模式的作用域里移除，只保留 `visibleInPresets` 列出的模式（默认 `chat`）——所以最终只有「纯对话」看得到它。
+因为那条允许 profile 本地包名的规则是**层级专属**的：
 
-这也是 tools 服务自己指定的做法，它的报错原文是：*"a context-global restriction would mask every agent — **deny the tool for the intended agent instead**"*。
+```ts
+// packages/boot/app-boot/src/profile-resolution/resolver.ts
+private routeLocalPackage(request, parentRoutes, resolution) {
+  ...
+  if (name === undefined || layer.kind !== 'profile' || !layer.active
+      || !resolution.localPackageNames.has(name)) return undefined
+  return { route: { kind: 'native' as const } }   // 放行给 Node
+}
+```
 
-### 判断「当前是什么模式」不能只看会话头
+只有 `layer.kind === 'profile'` 的导入方会走这条路，而 preset 的行挂在注册表拥有的**内存子树**里。
 
-会话头里的 `agentPreset` 是**创建时的冻结事实**，不是当前值：
+### 为什么 file URL 可以
 
-- 一个**还没跑过任何一轮**的会话仍可以在创建之后切换预设。`agent-preset-registry/src/session.ts` 的原文是：*"reads the `agentPreset` Session projection, **never the header alone**"*。
+绝对 `file:` URL **完全不需要包解析**——Node 直接 import 那个 URL。而且 `compatibility-preflight.ts` 把这个情形**显式**写进了判断：
+
+```ts
+if (!isAbsolute(specifier) && !specifier.startsWith('.') && !specifier.startsWith('file:')) return undefined
+```
+
+所以这样的行会被当成普通行接纳。
+
+### 真正的收益是作用域
+
+工具行挂在 preset 里，`ctx.tools.register()` 就落在 **preset 的作用域**上：只有从「纯对话」组合出来的 agent 看得见 `keep_thinking`，其它模式**什么都不用摘**。插件因此没有任何可见性逻辑——不监听 `agent/created`、不推断当前预设、不调用 `tools.restrict()`。
+
+> **实测记录**（把没验证的结论跟验证过的分开写）
+>
+> - 用一个一次性的探针预设实测：preset 子树里按 file URL 挂一行，`IMPORTED` 和 `APPLIED` 都会发生 ✅
+> - 探针读到的 `ctx.baseUrl` 是 **profile 目录**（`file:///…/profiles/<name>/`），不是 `app.asar`。
+> - 这一点跟上面那条「裸包名不行」**是冲突的**：baseUrl 落在 profile 目录里，按 `routeLocalPackage` 的规则裸包名**本该**能解析。所以当初那次 `never started` 的确切原因**没有定论**（一个可能是当时 `think_better` 还没写进 profile 的 `dependencies`，于是 `localPackageNames` 里没有它）。
+> - 结论：**file URL 是验证过可行的那条路**；裸包名现在到底行不行，**没测过**。
+
+### 顺带记录：切换预设的窗口
+
+- 会话头里的 `agentPreset` 是**创建时的冻结事实**，不是当前值。`agent-preset-registry/src/session.ts` 的原文是：*"reads the `agentPreset` Session projection, never the header alone"*。
 - `select()` 会拒绝已经开过轮的会话（抛 `agent-preset/locked: This session has already started`）。**预设只能在第一次对话之前选**，一旦跑过一轮就冻结——所以在旧会话里换不到「纯对话」，只能新建一个。
-- 在那个窗口里 agent **早就存在了**：`session-controller/src/commands.ts` 的 `create()` 会连同会话一起创建 agent（会话头就是那时写下的），之后 `select()` 才 `recompose(agent.ctx, …)`、再把 `agent-preset/selected` 追加进日志。
 
-只用会话头判断会踩一个很隐蔽的坑：新建会话时默认预设是 `standard`/`cordis` → 插件按头部 deny 掉工具 → 你在开聊之前把预设点成「纯对话」→ **那条 deny 一直没被解除**，纯对话里反而看不到 `keep_thinking`。
-
-本插件因此：
-
-1. 从**会话日志**推导当前预设：以头部为初值，用日志里最后一条 `agent-preset/selected` 覆盖它；
-2. 除了 `agent/created`，还监听 **`agent-preset/selected`** 事件，在预设变更时重新评估，并在切回「纯对话」时**解除**之前的 deny（用 `restrict()` 返回的 disposer）；
-3. `agent/disposed` 时清理记录。
+这两条在旧版本里曾经是个坑（那时可见性靠「按会话头 deny、切预设再解除」，还会踩到 `select()` 的时序）。现在工具跟着配方走，可见性已经与预设身份无关。
 
 ---
 
@@ -283,18 +304,19 @@ dsh plugin --profile <你的profile> remove think_better
 pnpm test        # = node --import ./test/register.mjs test/behaviour.test.mjs
 ```
 
-覆盖：可见性判定（头部 + 日志推导）、切换预设时 deny 的**解除**、`restrict()` 抛错时不得否决 agent 创建、轮数计数与 `turn/start`/`agent/disposed` 的重置、`maxRounds` 行为、三档返回文案。
+覆盖：只注册一个工具、**从不调用 `tools.restrict()`**（可见性归作用域管，插件不该有可见性逻辑）、轮数计数与 `turn/start`/`agent/disposed` 的重置、每会话独立计数、`maxRounds` 行为、三档返回文案。
 
-> 这份测试对 `v0.2.0` 会**失败**——它复现的正是「会话以别的预设创建、开聊之前切成纯对话，`keep_thinking` 一直看不见」那个 bug。
+> 0.2.x 那版测的是「从会话日志推断当前预设 + 解除 deny」；那套逻辑已经删掉了，相应的断言也一起删了。
 
 ---
 
 ## 已知限制
 
-- `keep_thinking` 的可见性由 `visibleInPresets` 控制，判定依据是**从会话日志推导出的当前预设**（头部为初值，被最新的 `agent-preset/selected` 覆盖）。**只有明确识别出别的模式时才移除**；预设无法确定时保留工具，不会误伤「纯对话」。
+- `keep_thinking` 的可见性**由作用域决定，不由插件决定**：工具行挂在 `preset-chat` 里，所以只有「纯对话」的 agent 看得见它。插件里没有任何可见性逻辑，也不需要。
+- 工具行用**绝对 file URL** 引入，所以换仓库位置、改目录名都要同步改 `cordis.patch.yml` 里那一行。
 - **「纯对话」的系统提示词不止人设那 5 行，工具也不止 11 个。** 因为 `persona.prefix` 只遮蔽部署级人设、没设 `complete: true`，harness 的工具引导段落（`read`/`grep`/`glob`/`web_search`/`present` 的用法）会照常注入；**Agent Teams 那一大段 `POLICY` 文字也会进来**。实测一轮下发 **25 个工具**：本 preset 挂的 11 个，加上 agent-team 的 9 个（`spawn_teammate`/`send_message`/`list_agents`/`wait_agent`/`interrupt_agent`/`team_task_*`）、`schedule_*` 4 个、`load_workspace_dependencies` 1 个。
-- **这 14 个不是"忘了挂"，是本插件收不掉。** `tool-agent-team` 和 `schedule` 都在 `agent/created` 时把工具注册进 **agent 自己的作用域**（`tool-agent-team/src/index.ts`：`const scoped = agent.ctx`；`schedule/src/index.ts`：`registerScheduleTools(ctx, agent.ctx, agent)`），而 `tools.restrict()` 只能遮蔽**全局**工具——拿作用域内的名字去 restrict 会直接抛 `unknown global tool`。所以「刻意没有挂的」那张表管不到它们，"把 deny 列表做成配置项"也解决不了；要让「纯对话」真的干净，只能在整个 profile 层面不挂 `dsh-experimental-agent-team-profile` / `dsh-experimental-schedule-bundle`（所有模式一起去掉）。这 14 个里只有 `load_workspace_dependencies` 是全局注册，理论上可以 restrict。
-- 已经被旧版本 deny 过的**运行中**会话，需要重启 DSH 后才会按新逻辑重新评估（限制在 agent 创建/预设变更时同步）。
+- **这 14 个不是"忘了挂"，是本插件收不掉。** `tool-agent-team` 和 `schedule` 都在 `agent/created` 时把工具注册进 **agent 自己的作用域**（`tool-agent-team/src/index.ts`：`const scoped = agent.ctx`；`schedule/src/index.ts`：`registerScheduleTools(ctx, agent.ctx, agent)`），而 `tools.restrict()` 只能遮蔽**全局**工具——拿作用域内的名字去 restrict 会直接抛 `unknown global tool`。所以「刻意没有挂的」那张表管不到它们，"把 deny 列表做成配置项"也解决不了；要让「纯对话」真的干净，只能在整个 profile 层面不挂 `dsh-experimental-agent-team-profile` / `dsh-experimental-schedule-bundle`（所有模式一起去掉）。这 14 个里只有 `load_workspace_dependencies` 是全局注册。（本插件现在不做任何 restrict，所以这条只是说明"为什么连做成配置项也收不掉"。）
+- 已经被旧版本 deny 过的**运行中**会话，需要重启 DSH 后才会恢复（旧版把限制记录在插件内存里；现在改用作用域，重启后天然干净）。
 - `tool-fs` **带写权限**。想要只读，把会话权限切到 profile 里的 `read-only` 预设。
 - `keep_thinking` 在对话记录里渲染为**通用工具卡片**。想做成定制的"思考"卡片，需要另写一个 Client 插件在 `tool.call.toolview` 槽位注册组件。
 - 插件依赖 DSH 内部插件 id（`@deepseek-ai/dsh-*`）。DSH 升级后若某个 id 改名，需要同步更新 `cordis.patch.yml`。
