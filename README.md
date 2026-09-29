@@ -216,9 +216,24 @@ keep-thinking (think_better): never started
 
 （`never started` 在 `packages/preset/agent-preset-registry/src/mount.ts` 中等价于「模块根本没解析成功」。）
 
-**代价与处理**：宿主层注册是全局的，所以默认情况下 `keep_thinking` 对**所有模式**可见。插件在每个 agent 创建时用 `tools.restrict({ deny: ['keep_thinking'] })` 把它从其它模式的作用域里移除，只保留 `visibleInPresets` 列出的模式（默认 `chat`）——所以最终只有「纯对话」看得到它。
+**代价与处理**：宿主层注册是全局的，所以默认情况下 `keep_thinking` 对**所有模式**可见。插件用 `tools.restrict({ deny: ['keep_thinking'] })` 把它从其它模式的作用域里移除，只保留 `visibleInPresets` 列出的模式（默认 `chat`）——所以最终只有「纯对话」看得到它。
 
 这也是 tools 服务自己指定的做法，它的报错原文是：*"a context-global restriction would mask every agent — **deny the tool for the intended agent instead**"*。
+
+### 判断「当前是什么模式」不能只看会话头
+
+会话头里的 `agentPreset` 是**创建时的冻结事实**，不是当前值：
+
+- 一个**空白**会话仍可以在创建之后切换预设。`agent-preset-registry/src/session.ts` 的原文是：*"reads the `agentPreset` Session projection, **never the header alone**"*。
+- 而且 `select()` 是**先** `recompose(agent.ctx, …)`、**后**才把 `agent-preset/selected` 追加进日志——切换发生时 agent 早就存在了。
+
+只用会话头判断会踩一个很隐蔽的坑：会话以 `cordis` 创建 → 插件按头部 deny 掉工具 → 你切到「纯对话」→ **那条 deny 一直没被解除**，纯对话里反而看不到 `keep_thinking`。
+
+本插件因此：
+
+1. 从**会话日志**推导当前预设：以头部为初值，用日志里最后一条 `agent-preset/selected` 覆盖它；
+2. 除了 `agent/created`，还监听 **`agent-preset/selected`** 事件，在预设变更时重新评估，并在切回「纯对话」时**解除**之前的 deny（用 `restrict()` 返回的 disposer）；
+3. `agent/disposed` 时清理记录。
 
 ---
 
@@ -232,7 +247,8 @@ dsh plugin --profile <你的profile> remove think_better
 
 ## 已知限制
 
-- `keep_thinking` 的可见性由 `visibleInPresets` 控制。判定依据是会话头里的 `agentPreset`；**只有明确识别出别的模式时才移除**，所以即使某条创建路径没填这个字段，也只会让该会话多看到一个工具，不会误伤「纯对话」。
+- `keep_thinking` 的可见性由 `visibleInPresets` 控制，判定依据是**从会话日志推导出的当前预设**（头部为初值，被最新的 `agent-preset/selected` 覆盖）。**只有明确识别出别的模式时才移除**；预设无法确定时保留工具，不会误伤「纯对话」。
+- 已经被旧版本 deny 过的**运行中**会话，需要重启 DSH 后才会按新逻辑重新评估（限制在 agent 创建/预设变更时同步）。
 - `tool-fs` **带写权限**。想要只读，把会话权限切到 profile 里的 `read-only` 预设。
 - `keep_thinking` 在对话记录里渲染为**通用工具卡片**。想做成定制的"思考"卡片，需要另写一个 Client 插件在 `tool.call.toolview` 槽位注册组件。
 - 插件依赖 DSH 内部插件 id（`@deepseek-ai/dsh-*`）。DSH 升级后若某个 id 改名，需要同步更新 `cordis.patch.yml`。

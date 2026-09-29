@@ -1,6 +1,6 @@
 {
   "name": "think_better",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "keep_thinking: a text-only control-flow tool that lets the model request another round of reasoning, plus the 纯对话 agent preset",
