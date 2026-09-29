@@ -1,8 +1,11 @@
 {
   "name": "think_better",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "node --import ./test/register.mjs test/behaviour.test.mjs"
+  },
   "description": "keep_thinking: a text-only control-flow tool that lets the model request another round of reasoning, plus the 纯对话 agent preset",
   "main": "lib/index.js",
   "exports": {

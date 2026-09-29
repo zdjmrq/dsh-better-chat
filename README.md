@@ -63,7 +63,7 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 | `tool-fs-search` | `@deepseek-ai/dsh-tool-fs-search` | `sampleOverCapGlobResults: false` | `glob` `grep` |
 | `present` | `@deepseek-ai/dsh-tool-present` | — | `present` |
 
-**合计 11 个工具。**
+**合计 11 个工具。** 实测「纯对话」一轮实际下发 **25 个工具**——多出来的 14 个来自宿主层的其它 bundle，见 [已知限制](#已知限制)。
 
 ### 刻意没有挂的
 
@@ -224,10 +224,11 @@ keep-thinking (think_better): never started
 
 会话头里的 `agentPreset` 是**创建时的冻结事实**，不是当前值：
 
-- 一个**空白**会话仍可以在创建之后切换预设。`agent-preset-registry/src/session.ts` 的原文是：*"reads the `agentPreset` Session projection, **never the header alone**"*。
-- 而且 `select()` 是**先** `recompose(agent.ctx, …)`、**后**才把 `agent-preset/selected` 追加进日志——切换发生时 agent 早就存在了。
+- 一个**还没跑过任何一轮**的会话仍可以在创建之后切换预设。`agent-preset-registry/src/session.ts` 的原文是：*"reads the `agentPreset` Session projection, **never the header alone**"*。
+- `select()` 会拒绝已经开过轮的会话（抛 `agent-preset/locked: This session has already started`）。**预设只能在第一次对话之前选**，一旦跑过一轮就冻结——所以在旧会话里换不到「纯对话」，只能新建一个。
+- 在那个窗口里 agent **早就存在了**：`session-controller/src/commands.ts` 的 `create()` 会连同会话一起创建 agent（会话头就是那时写下的），之后 `select()` 才 `recompose(agent.ctx, …)`、再把 `agent-preset/selected` 追加进日志。
 
-只用会话头判断会踩一个很隐蔽的坑：会话以 `cordis` 创建 → 插件按头部 deny 掉工具 → 你切到「纯对话」→ **那条 deny 一直没被解除**，纯对话里反而看不到 `keep_thinking`。
+只用会话头判断会踩一个很隐蔽的坑：新建会话时默认预设是 `standard`/`cordis` → 插件按头部 deny 掉工具 → 你在开聊之前把预设点成「纯对话」→ **那条 deny 一直没被解除**，纯对话里反而看不到 `keep_thinking`。
 
 本插件因此：
 
@@ -245,9 +246,25 @@ dsh plugin --profile <你的profile> remove think_better
 
 ---
 
+## 本地自测
+
+`lib/index.js` 的两个 harness import 被 `test/stub-loader.mjs` 顶替成桩，所以测试**直接跑线上那个文件**，不需要装 DSH：
+
+```sh
+pnpm test        # = node --import ./test/register.mjs test/behaviour.test.mjs
+```
+
+覆盖：可见性判定（头部 + 日志推导）、切换预设时 deny 的**解除**、`restrict()` 抛错时不得否决 agent 创建、轮数计数与 `turn/start`/`agent/disposed` 的重置、`maxRounds` 行为、三档返回文案。
+
+> 这份测试对 `v0.2.0` 会**失败**——它复现的正是「会话以别的预设创建、开聊之前切成纯对话，`keep_thinking` 一直看不见」那个 bug。
+
+---
+
 ## 已知限制
 
 - `keep_thinking` 的可见性由 `visibleInPresets` 控制，判定依据是**从会话日志推导出的当前预设**（头部为初值，被最新的 `agent-preset/selected` 覆盖）。**只有明确识别出别的模式时才移除**；预设无法确定时保留工具，不会误伤「纯对话」。
+- **「纯对话」的系统提示词不止人设那 5 行，工具也不止 11 个。** 因为 `persona.prefix` 只遮蔽部署级人设、没设 `complete: true`，harness 的工具引导段落（`read`/`grep`/`glob`/`web_search`/`present` 的用法）会照常注入；**Agent Teams 那一大段 `POLICY` 文字也会进来**。实测一轮下发 **25 个工具**：本 preset 挂的 11 个，加上 agent-team 的 9 个（`spawn_teammate`/`send_message`/`list_agents`/`wait_agent`/`interrupt_agent`/`team_task_*`）、`schedule_*` 4 个、`load_workspace_dependencies` 1 个。
+- **这 14 个不是"忘了挂"，是本插件收不掉。** `tool-agent-team` 和 `schedule` 都在 `agent/created` 时把工具注册进 **agent 自己的作用域**（`tool-agent-team/src/index.ts`：`const scoped = agent.ctx`；`schedule/src/index.ts`：`registerScheduleTools(ctx, agent.ctx, agent)`），而 `tools.restrict()` 只能遮蔽**全局**工具——拿作用域内的名字去 restrict 会直接抛 `unknown global tool`。所以「刻意没有挂的」那张表管不到它们，"把 deny 列表做成配置项"也解决不了；要让「纯对话」真的干净，只能在整个 profile 层面不挂 `dsh-experimental-agent-team-profile` / `dsh-experimental-schedule-bundle`（所有模式一起去掉）。这 14 个里只有 `load_workspace_dependencies` 是全局注册，理论上可以 restrict。
 - 已经被旧版本 deny 过的**运行中**会话，需要重启 DSH 后才会按新逻辑重新评估（限制在 agent 创建/预设变更时同步）。
 - `tool-fs` **带写权限**。想要只读，把会话权限切到 profile 里的 `read-only` 预设。
 - `keep_thinking` 在对话记录里渲染为**通用工具卡片**。想做成定制的"思考"卡片，需要另写一个 Client 插件在 `tool.call.toolview` 槽位注册组件。
