@@ -238,6 +238,35 @@ keep-thinking (think_better): never started
 
 ---
 
+## 插件列表里的显示名
+
+插件页显示的**不是**包名，而是一份可本地化的显示元数据。取法（`packages/boot/app-boot/src/package-meta.ts` 的 `readPluginMeta`）：
+
+1. 先解析 `<包名>/locale/en.json` —— 这个文件是**入口**，没有它，其它语言文件根本不会被扫描；
+2. 再扫同目录下所有 `<语言id>.json`（语言 id 小写化为键，所以 `zh-CN.json` → `zh-cn`）；
+3. `meta.title` / `meta.description` 取到就用；取不到则回落到 `package.json` 的 `name` / `description`；
+4. 客户端 `presentation.ts` 是 `title: pkg.meta?.title ?? pkg.name` —— **所以包名和显示名是两回事**。
+
+这就是本仓库 `locale/` 的由来：
+
+```json
+// locale/zh-CN.json
+{ "meta": { "title": "更好的对话模式", "description": "…" } }
+// locale/en.json
+{ "meta": { "title": "Better Chat Mode", "description": "…" } }
+```
+
+两个前提，缺一不可：
+
+- `package.json` 的 `exports` 必须放行这个路径（`"./locale/*": "./locale/*"`）——解析走的是 Node 的 ESM resolver，`exports` 不放行就等于没有这个文件（报 `ERR_PACKAGE_PATH_NOT_EXPORTED`，被当成"没配元数据"静默回落）；
+- `files` 里要有 `locale`，否则打包/安装时不会带上。
+
+包名 `think_better`、行 id `think-better-tool`、模块名都不用动——显示名和它们是分开的两层。另外 `package.json` 顶层可以放 `icon`（相对路径，SVG/PNG/JPEG/WebP，≤256 KiB），会被内联成 data URL 显示在插件页。
+
+> 元数据在启动时读取，改完要**重启**。
+
+---
+
 ## 卸载
 
 ```sh
