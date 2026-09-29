@@ -104,12 +104,6 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 
 净效果：**最多 `maxRounds` 轮思考 + 1 轮最终回答，绝对收敛。**
 
-调参建议：
-
-- `6` —— 更省、更快，适合日常聊天
-- `10` —— 默认，留给复杂问题足够余量
-- `20+` —— 除非你真的会问需要长链条推演的问题，否则不建议（每一步都是一次完整 API 请求，且会重发全部累积历史）
-
 ### 其它可调参数
 
 | 行 | 参数 | 默认 | 说明 |
@@ -158,14 +152,38 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 
 ## 安装
 
+### 方式一：直接从 git 仓库安装（推荐）
+
+```sh
+dsh plugin --profile <你的profile> add https://github.com/zdjmrq/dsh-better-chat
+```
+
+DSH 的 `install_bundle` 原生支持 git 仓库 URL，pnpm 会克隆仓库并把它装进 profile，**不需要先 clone、也不需要发到 npm**。
+
+想锁定版本就加 commitish：
+
+```sh
+dsh plugin --profile <你的profile> add "https://github.com/zdjmrq/dsh-better-chat#v0.1.0"
+```
+
+### 方式二：克隆后按本地路径安装
+
 ```sh
 git clone https://github.com/zdjmrq/dsh-better-chat.git
 dsh plugin --profile <你的profile> add "<clone 出来的绝对路径>"
 ```
 
-也可以在 Web 侧边栏的 **插件** 页选择该绝对路径安装，然后**重启 DSH**。
+适合要自己改代码的场景——就地改，重装一次即生效。
 
-> 插件是按绝对路径以**目录链接**（junction / symlink）方式装进 profile 的，所以**克隆出来的目录不要删除或移动**，否则 profile 启动时会跳过这个 bundle。
+### 方式三：Web 插件页
+
+侧边栏 **插件** 页 → 安装组合包 → 填上面任意一种 spec（git URL 或绝对路径）。
+
+> 三种方式装完都需要**重启 DSH** 才会看到新模式。
+>
+> 本地路径方式会创建**目录链接**（junction / symlink），那个目录**不要删除或移动**，否则 profile 启动时会跳过这个 bundle。
+>
+> 本插件没有发布到 npm：git 安装方式已经覆盖同样的效果，没必要多维护一个发布渠道。
 
 ---
 
