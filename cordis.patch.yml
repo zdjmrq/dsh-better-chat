@@ -1,0 +1,76 @@
+# think_better — the 纯对话 (pure chat) agent preset plus the keep_thinking tool.
+#
+# Placement note (do not "tidy" this into the preset):
+# DSH's runtime resolver hands a profile-local package name to Node only when the
+# importing layer is the profile itself (resolver.ts: `layer.kind !== 'profile'`).
+# A preset's plugins mount into a registry-owned in-memory Loader subtree, and
+# `collectProfileScopePackages` explicitly removes each profile bundle's own name
+# from the shared table. A row named `think_better` inside `config.plugins`
+# therefore never resolves — it reports "never started". The tool row must sit at
+# the profile layer, beside the preset declaration, exactly as the shipped
+# `cordis-plugin-development` template places a bundle's own plugin.
+#
+# The Web app disables the base rows for tool-web, tool-fs and tool-fs-search
+# ("The Web app disables this host row and composes both tools per agent
+# preset"), so the preset must mount them itself.
+
+- insert:
+    # keep_thinking: text-only control flow for multi-round reasoning. Registered
+    # at the profile layer, so every preset's agents can see it; the 纯对话
+    # persona is what teaches when to reach for it.
+    - id: think-better-tool
+      name: 'think_better'
+      config:
+        maxRounds: 10
+
+    - id: preset-chat
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: chat
+        name: 纯对话
+        description: 像网页版一样聊天，可联网搜索、读本地文件，需要时会多轮思考。
+        order: 0
+        plugins:
+          # Persona. A scoped `prefix` shadows deployment:persona-prefix, so the
+          # deployment coding-agent identity is replaced without `complete: true`
+          # -- and leaving `complete` unset keeps tool-guidance sections alive.
+          # The suffix keeps {{cwd}} visible: no runtime-context provider supplies
+          # the working directory, yet the fs tools resolve relative paths
+          # against it.
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |-
+                你是一位专业、耐心的对话助手，既能深入讨论专业问题，也能自然闲聊。
+                专业问题上：结论先行、依据清楚、不确定处直言不讳。
+                日常对话上：自然、简洁、不端着。
+                需要查证时使用联网搜索或文件工具，不做无意义的工具调用；简单问题直接回答。
+                推演不充分时调用 keep_thinking 继续思考，足够时立即作答。
+              suffix: '当前工作目录是 {{cwd}}。'
+              includeRuntimeContext: true
+
+          # Web search: the one real capability the DeepSeek web app exposes.
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+
+          # Ask instead of guessing when the user owns the decision.
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+
+          # Local files: read what the user has, rather than waiting for an upload.
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+
+          # `sampleOverCapGlobResults` is required by this plugin's Config schema
+          # (`z.boolean().required()`), so it cannot be omitted.
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+
+          # File cards for anything `write` produces.
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
