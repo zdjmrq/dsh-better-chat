@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "更好的对话模式",
+    "description": "像 DeepSeek 网页版一样聊天，并带一个纯文字控制流工具 keep_thinking：模型自己决定要想几轮、什么时候停。"
+  }
+}

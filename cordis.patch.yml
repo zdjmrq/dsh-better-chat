@@ -1,4 +1,4 @@
-# think_better — the 纯对话 (pure chat) agent preset plus the keep_thinking tool.
+# think_better — the 更好的对话模式 (pure chat) agent preset plus the keep_thinking tool.
 #
 # Placement: the tool row sits INSIDE the preset and is named by an absolute file
 # URL, not by the package name. Measured, not assumed:
@@ -15,7 +15,7 @@
 #   (`!specifier.startsWith('file:')`), so such a row is admitted normally.
 #
 # The payoff is scope, not only resolution: a row mounted here registers through
-# the preset's own context, so keep_thinking is visible to 纯对话 agents alone
+# the preset's own context, so keep_thinking is visible to 更好的对话模式 agents alone
 # and no other mode has to be masked back.
 #
 # The Web app disables the base rows for tool-web, tool-fs and tool-fs-search
@@ -27,7 +27,7 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: chat
-        name: 纯对话
+        name: 更好的对话模式
         description: 像网页版一样聊天，可联网搜索、读本地文件，需要时会多轮思考。
         order: 0
         plugins:

@@ -1,14 +1,14 @@
 # dsh-better-chat
 
-给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的「**纯对话**」模式：像 DeepSeek 网页版一样聊天，但**会自己多轮思考**。
+给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的「**更好的对话模式**」模式：像 DeepSeek 网页版一样聊天，但**会自己多轮思考**。
 
-一个 DSH 本地 bundle，向 Web 端注册名为「纯对话」的 agent preset，并附带一个 `keep_thinking` 工具。
+一个 DSH 本地 bundle，向 Web 端注册名为「更好的对话模式」的 agent preset，并附带一个 `keep_thinking` 工具。
 
 ---
 
 ## 它是什么
 
-- **一个模式（agent preset）**，在 DSH 的设置页出现，名字叫「纯对话」
+- **一个模式（agent preset）**，在 DSH 的设置页出现，名字叫「更好的对话模式」
 - **一个工具** `keep_thinking`：**纯文字的控制流工具**，不碰文件、不联网、无任何副作用
 - 模型**自己决定**要想 1 轮还是 N 轮，**自己判断**什么时候该停
 - 只有一个硬上限（默认 **10 轮**）防止无限循环
@@ -62,9 +62,9 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 | `tool-fs-search` | `@deepseek-ai/dsh-tool-fs-search` | `sampleOverCapGlobResults: false` | `glob` `grep` |
 | `present` | `@deepseek-ai/dsh-tool-present` | — | `present` |
 
-**合计 11 个工具。** 实测「纯对话」一轮实际下发 **25 个工具**——多出来的 14 个来自宿主层的其它 bundle，见 [已知限制](#已知限制)。
+**合计 11 个工具。** 实测「更好的对话模式」一轮实际下发 **25 个工具**——多出来的 14 个来自宿主层的其它 bundle，见 [已知限制](#已知限制)。
 
-> 因为工具行**就在 preset 里**，`ctx.tools.register()` 走的是 preset 的作用域：只有「纯对话」的 agent 看得见它，其它模式**不需要被摘掉任何东西**。
+> 因为工具行**就在 preset 里**，`ctx.tools.register()` 走的是 preset 的作用域：只有「更好的对话模式」的 agent 看得见它，其它模式**不需要被摘掉任何东西**。
 
 ### 刻意没有挂的
 
@@ -74,9 +74,9 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 | `dsh-tool-ralph` | 天生自我循环 |
 | `dsh-tool-subagent` / `dsh-tool-workflow` / agent-team | 请求数成倍放大 |
 | `dsh-tool-todo` | 会把人格拉向"干活" |
-| `dsh-tool-pwsh` / `dsh-tool-bash` / `dsh-tool-jobs` / `dsh-tool-terminal` | 重型，与"纯对话"定位冲突 |
+| `dsh-tool-pwsh` / `dsh-tool-bash` / `dsh-tool-jobs` / `dsh-tool-terminal` | 重型，与"更好的对话模式"定位冲突 |
 | `dsh-agent-instructions` | **必须不挂**，否则会去读 `AGENTS.md`，模型一上来就进入编码 agent 人格 |
-| `dsh-plan-mode` | 与纯对话无关 |
+| `dsh-plan-mode` | 与更好的对话模式无关 |
 
 ### 不用挂、base 已经有的
 
@@ -241,7 +241,7 @@ if (!isAbsolute(specifier) && !specifier.startsWith('.') && !specifier.startsWit
 
 ### 真正的收益是作用域
 
-工具行挂在 preset 里，`ctx.tools.register()` 就落在 **preset 的作用域**上：只有从「纯对话」组合出来的 agent 看得见 `keep_thinking`，其它模式**什么都不用摘**。插件因此没有任何可见性逻辑——不监听 `agent/created`、不推断当前预设、不调用 `tools.restrict()`。
+工具行挂在 preset 里，`ctx.tools.register()` 就落在 **preset 的作用域**上：只有从「更好的对话模式」组合出来的 agent 看得见 `keep_thinking`，其它模式**什么都不用摘**。插件因此没有任何可见性逻辑——不监听 `agent/created`、不推断当前预设、不调用 `tools.restrict()`。
 
 > **实测记录**（把没验证的结论跟验证过的分开写）
 >
@@ -253,7 +253,7 @@ if (!isAbsolute(specifier) && !specifier.startsWith('.') && !specifier.startsWit
 ### 顺带记录：切换预设的窗口
 
 - 会话头里的 `agentPreset` 是**创建时的冻结事实**，不是当前值。`agent-preset-registry/src/session.ts` 的原文是：*"reads the `agentPreset` Session projection, never the header alone"*。
-- `select()` 会拒绝已经开过轮的会话（抛 `agent-preset/locked: This session has already started`）。**预设只能在第一次对话之前选**，一旦跑过一轮就冻结——所以在旧会话里换不到「纯对话」，只能新建一个。
+- `select()` 会拒绝已经开过轮的会话（抛 `agent-preset/locked: This session has already started`）。**预设只能在第一次对话之前选**，一旦跑过一轮就冻结——所以在旧会话里换不到「更好的对话模式」，只能新建一个。
 
 这两条在旧版本里曾经是个坑（那时可见性靠「按会话头 deny、切预设再解除」，还会踩到 `select()` 的时序）。现在工具跟着配方走，可见性已经与预设身份无关。
 
@@ -264,18 +264,46 @@ if (!isAbsolute(specifier) && !specifier.startsWith('.') && !specifier.startsWit
 插件页显示的**不是**包名，而是一份可本地化的显示元数据。取法（`packages/boot/app-boot/src/package-meta.ts` 的 `readPluginMeta`）：
 
 1. 先解析 `<包名>/locale/en.json` —— 这个文件是**入口**，没有它，其它语言文件根本不会被扫描；
-2. 再扫同目录下所有 `<语言id>.json`（语言 id 小写化为键，所以 `zh-CN.json` → `zh-cn`）；
+2. 再扫同目录下所有 `<语言id>.json`，**文件名就是查表用的键**（小写化：`zh-CN.json` → `zh-cn`）；
 3. `meta.title` / `meta.description` 取到就用；取不到则回落到 `package.json` 的 `name` / `description`；
 4. 客户端 `presentation.ts` 是 `title: pkg.meta?.title ?? pkg.name` —— **所以包名和显示名是两回事**。
 
-这就是本仓库 `locale/` 的由来：
+### ⚠️ 文件名必须和 DSH 的语言 id 一模一样
+
+**这一步很容易错。** DSH 内置的语言 id 是 **`zh`** 和 `en`（`packages/client/locale/src/locale-settings.ts`：`LOCALE_IDS = ['zh', 'en']`），**不是 `zh-CN`**。
+
+查表是按当前语言 id 做的（`locale/src/client/index.ts`）：
+
+```ts
+resolveText(text) {
+  return this.fallbackChain(this.snapshot.active).reduceRight(
+    (resolved, locale) => text[localeKey(locale)] ?? resolved,   // localeKey = toLowerCase()
+    text.en,
+  )
+}
+```
+
+所以文件名写成 `zh-CN.json` 时，键是 `zh-cn`，而当前语言是 `zh` → **查不到 → 静默回落到英文**。页面就会显示英文标题和英文描述，而且**不报任何错**。
+
+本仓库因此同时放两个，覆盖 `zh` 和可能的 `zh-CN` 语言包：
 
 ```json
-// locale/zh-CN.json
+// locale/zh.json       ← 内置语言，主要就靠这个
+// locale/zh-CN.json    ← 兼容自定义 zh-CN 语言包
 { "meta": { "title": "更好的对话模式", "description": "…" } }
-// locale/en.json
+
+// locale/en.json       ← 入口文件 + 英文兜底
 { "meta": { "title": "Better Chat Mode", "description": "…" } }
 ```
+
+### 插件页上哪些能改、哪些改不了
+
+| 页面元素 | 来源 | 能不能中文化 |
+|---|---|---|
+| 标题 | `meta.title` | ✅ |
+| 描述 | `meta.description` | ✅ |
+| 版本号 | `package.json` 的 `version` | ❌ 本来就不该翻译 |
+| **包名**（等宽字体那一行） | `package.json` 的 `name` | ❌ 原样显示（`PluginManagerPage.tsx` 里是 `<code>{pkg.name}</code>`），而且 npm 包名不允许中文，它同时是 `dsh plugin remove <name>` 要用的句柄 |
 
 两个前提，缺一不可：
 
@@ -284,7 +312,7 @@ if (!isAbsolute(specifier) && !specifier.startsWith('.') && !specifier.startsWit
 
 包名 `think_better`、行 id `think-better-tool`、模块名都不用动——显示名和它们是分开的两层。另外 `package.json` 顶层可以放 `icon`（相对路径，SVG/PNG/JPEG/WebP，≤256 KiB），会被内联成 data URL 显示在插件页。
 
-> 元数据在启动时读取，改完要**重启**。
+> 元数据在**启动时**读取，改完要**重启**。
 
 ---
 
@@ -312,10 +340,10 @@ pnpm test        # = node --import ./test/register.mjs test/behaviour.test.mjs
 
 ## 已知限制
 
-- `keep_thinking` 的可见性**由作用域决定，不由插件决定**：工具行挂在 `preset-chat` 里，所以只有「纯对话」的 agent 看得见它。插件里没有任何可见性逻辑，也不需要。
+- `keep_thinking` 的可见性**由作用域决定，不由插件决定**：工具行挂在 `preset-chat` 里，所以只有「更好的对话模式」的 agent 看得见它。插件里没有任何可见性逻辑，也不需要。
 - 工具行用**绝对 file URL** 引入，所以换仓库位置、改目录名都要同步改 `cordis.patch.yml` 里那一行。
-- **「纯对话」的系统提示词不止人设那 5 行，工具也不止 11 个。** 因为 `persona.prefix` 只遮蔽部署级人设、没设 `complete: true`，harness 的工具引导段落（`read`/`grep`/`glob`/`web_search`/`present` 的用法）会照常注入；**Agent Teams 那一大段 `POLICY` 文字也会进来**。实测一轮下发 **25 个工具**：本 preset 挂的 11 个，加上 agent-team 的 9 个（`spawn_teammate`/`send_message`/`list_agents`/`wait_agent`/`interrupt_agent`/`team_task_*`）、`schedule_*` 4 个、`load_workspace_dependencies` 1 个。
-- **这 14 个不是"忘了挂"，是本插件收不掉。** `tool-agent-team` 和 `schedule` 都在 `agent/created` 时把工具注册进 **agent 自己的作用域**（`tool-agent-team/src/index.ts`：`const scoped = agent.ctx`；`schedule/src/index.ts`：`registerScheduleTools(ctx, agent.ctx, agent)`），而 `tools.restrict()` 只能遮蔽**全局**工具——拿作用域内的名字去 restrict 会直接抛 `unknown global tool`。所以「刻意没有挂的」那张表管不到它们，"把 deny 列表做成配置项"也解决不了；要让「纯对话」真的干净，只能在整个 profile 层面不挂 `dsh-experimental-agent-team-profile` / `dsh-experimental-schedule-bundle`（所有模式一起去掉）。这 14 个里只有 `load_workspace_dependencies` 是全局注册。（本插件现在不做任何 restrict，所以这条只是说明"为什么连做成配置项也收不掉"。）
+- **「更好的对话模式」的系统提示词不止人设那 5 行，工具也不止 11 个。** 因为 `persona.prefix` 只遮蔽部署级人设、没设 `complete: true`，harness 的工具引导段落（`read`/`grep`/`glob`/`web_search`/`present` 的用法）会照常注入；**Agent Teams 那一大段 `POLICY` 文字也会进来**。实测一轮下发 **25 个工具**：本 preset 挂的 11 个，加上 agent-team 的 9 个（`spawn_teammate`/`send_message`/`list_agents`/`wait_agent`/`interrupt_agent`/`team_task_*`）、`schedule_*` 4 个、`load_workspace_dependencies` 1 个。
+- **这 14 个不是"忘了挂"，是本插件收不掉。** `tool-agent-team` 和 `schedule` 都在 `agent/created` 时把工具注册进 **agent 自己的作用域**（`tool-agent-team/src/index.ts`：`const scoped = agent.ctx`；`schedule/src/index.ts`：`registerScheduleTools(ctx, agent.ctx, agent)`），而 `tools.restrict()` 只能遮蔽**全局**工具——拿作用域内的名字去 restrict 会直接抛 `unknown global tool`。所以「刻意没有挂的」那张表管不到它们，"把 deny 列表做成配置项"也解决不了；要让「更好的对话模式」真的干净，只能在整个 profile 层面不挂 `dsh-experimental-agent-team-profile` / `dsh-experimental-schedule-bundle`（所有模式一起去掉）。这 14 个里只有 `load_workspace_dependencies` 是全局注册。（本插件现在不做任何 restrict，所以这条只是说明"为什么连做成配置项也收不掉"。）
 - 已经被旧版本 deny 过的**运行中**会话，需要重启 DSH 后才会恢复（旧版把限制记录在插件内存里；现在改用作用域，重启后天然干净）。
 - `tool-fs` **带写权限**。想要只读，把会话权限切到 profile 里的 `read-only` 预设。
 - `keep_thinking` 在对话记录里渲染为**通用工具卡片**。想做成定制的"思考"卡片，需要另写一个 Client 插件在 `tool.call.toolview` 槽位注册组件。
