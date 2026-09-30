@@ -1,18 +1,34 @@
 # think_better — the 更好的对话模式 (pure chat) agent preset plus the keep_thinking tool.
 #
-# Placement: the tool row sits INSIDE the preset and is named by an absolute file
-# URL, not by the package name. Measured, not assumed:
+# Placement: the tool row sits INSIDE the preset and is named by PACKAGE NAME, so
+# the shipped patch stays portable. Why that resolves, from source (app-boot):
 #
-# - A bare `think_better` there reported "never started": a preset's rows mount
-#   into a registry-owned in-memory Loader subtree rather than the profile layer.
-# - A throwaway probe preset then mounted a module by absolute file URL and
-#   reported APPLIED, so that path is verified. Its baseUrl read back as
-#   `file:///…/profiles/<name>/` — the profile directory — which `routeLocalPackage`
-#   reads as `layer.kind === 'profile'`, i.e. by that rule a bare name *should*
-#   resolve. The original failure therefore has no confirmed cause; treat the
-#   bare name as untested and the file URL as the supported path.
-# - `compatibility-preflight.ts` names the file case explicitly
-#   (`!specifier.startsWith('file:')`), so such a row is admitted normally.
+# - `agent-preset-registry` mounts a preset's rows with
+#   `prepareProfileEntries(ctx, plugins, ctx.baseUrl)` — "scope context inheriting
+#   the declaring Loader's resolution base" — which a probe measured as the
+#   PROFILE directory (`file:///…/profiles/<name>/`), not the app archive.
+# - The resolver picks the interception layer from the IMPORTER PATH
+#   (`findInterceptionLayer` -> `computeProfileLayer`), not from who built the
+#   subtree, so an importer under the active profile yields
+#   `{ kind: 'profile', active: true }`.
+# - `routeLocalPackage` then needs only `localPackageNames.has('think_better')`,
+#   taken from the profile manifest's `dependencies` — true for any profile
+#   install, link: or git.
+#
+# All four conditions hold, so the bare name routes native. The 0.1.x
+# "never started" predates `think_better` being registered in the profile's
+# `dependencies`: `localPackageNames` was empty and the route was denied.
+#
+# The compatibility preflight does not stand in the way either: `manifestOf`
+# returns undefined for a bare specifier it cannot resolve — a row it cannot
+# resolve keeps the Loader's own diagnosis instead of being denied — and
+# `evaluatePluginCompatibility` inspects only `@deepseek-ai/dsh-*` peers, where
+# our `"*"` always satisfies the runtime version.
+#
+# A row that cannot resolve still fails the WHOLE subtree (`mountPreset` throws
+# on any failed row), so if this regresses, point this row at an absolute
+# `file://` URL LOCALLY to diagnose — never publish one (guide R22: a published
+# patch must not carry the author's machine paths).
 #
 # The payoff is scope, not only resolution: a row mounted here registers through
 # the preset's own context, so keep_thinking is visible to 更好的对话模式 agents alone
@@ -32,10 +48,10 @@
         order: 0
         plugins:
           # keep_thinking: text-only control flow for multi-round reasoning. Named
-          # by absolute file URL, so it mounts here — scoped to this preset — and
-          # never registers at the profile level.
+          # by package name, so it mounts here — scoped to this preset — and never
+          # registers at the profile level.
           - id: think-better-tool
-            name: 'file:///E:/DeepSeekHarness_own_plugin/think_better/lib/index.js'
+            name: 'think_better'
             config:
               maxRounds: 10
 

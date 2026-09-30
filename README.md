@@ -54,7 +54,7 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 
 | 行 id | 包 | 配置 | 提供的工具 |
 |---|---|---|---|
-| `think-better-tool` | `think_better`（本仓库），以**绝对 file URL** 引入 | `maxRounds: 10` | `keep_thinking` |
+| `think-better-tool` | `think_better`（本仓库，按包名引入） | `maxRounds: 10` | `keep_thinking` |
 | `persona` | `@deepseek-ai/dsh-persona` | 见 [persona](#persona可自行更换) | —（系统提示词） |
 | `tool-web` | `@deepseek-ai/dsh-tool-web` | `fetch: true`<br>`searchTimeoutMs: 60000` | `web_search` `web_fetch` |
 | `tool-ask-user` | `@deepseek-ai/dsh-tool-ask-user` | — | `ask_user_question` |
@@ -95,9 +95,9 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
     id: chat
     plugins:
       - id: think-better-tool
-        name: 'file:///…/think_better/lib/index.js'
+        name: 'think_better'
         config:
-          maxRounds: 10      # ← 改这里
+          maxRounds: 10      # ← 改这里，必须是 ≥1 的整数
 ```
 
 `maxRounds` 是**每个用户轮次**允许的思考轮数上限（每个 `turn/start` 清零）。它的行为：
@@ -109,6 +109,8 @@ DSH 的 agent 循环规则是：**让轮次继续的唯一燃料是「工具调�
 | `> maxRounds` | `思考已达 10 轮上限，本次回答到此结束。` + `concludeTurn()` | **本轮立即强制结束** |
 
 净效果：**最多 `maxRounds` 轮思考 + 1 轮最终回答，绝对收敛。**
+
+`maxRounds` 的 schema 是 `z.natural().min(1).default(10)`：非整数、0、负数都在**加载时**直接校验失败（`ValidationError`），不会静默退化成一个"一调用就结束本轮"的工具。
 
 ### 其它可调参数
 
@@ -196,18 +198,18 @@ dsh plugin --profile <你的profile> add "<clone 出来的绝对路径>"
 
 ## 为什么工具行在 preset 里面
 
-`cordis.patch.yml` 里**只有一行**（`preset-chat`）；`keep_thinking` 是它 `config.plugins` 里的一个子行，而且用**绝对 file URL** 而不是包名引入：
+`cordis.patch.yml` 里**只有一行**（`preset-chat`）；`keep_thinking` 是它 `config.plugins` 里的一个子行，**按包名**引入：
 
 ```yaml
 - id: think-better-tool
-  name: 'file:///E:/DeepSeekHarness_own_plugin/think_better/lib/index.js'
+  name: 'think_better'
   config:
     maxRounds: 10
 ```
 
-### 为什么不能用包名
+### 为什么包名能解析（这次是从源码定的）
 
-用裸包名 `think_better` 时会失败，诊断是：
+0.1.x 用裸包名时失败过：
 
 ```
 think-better-tool (think_better): never started
@@ -215,29 +217,32 @@ think-better-tool (think_better): never started
 
 （`never started` 在 `packages/preset/agent-preset-registry/src/mount.ts` 中等价于「模块根本没解析成功」。）
 
-因为那条允许 profile 本地包名的规则是**层级专属**的：
+当时的解释是「preset 的行挂在注册表拥有的**内存子树**里，profile 本地包名那条规则不适用」。**这个解释站不住**——把 `packages/boot/app-boot` 的解析器读完，四个条件现在全部成立：
+
+| 条件 | 源码位置 | 本机取值 |
+|---|---|---|
+| 导入方 baseURL 落在 profile 目录里 | `mountPreset` 用 `prepareProfileEntries(ctx, plugins, ctx.baseUrl)`——注释原文是 *"scope context inheriting the declaring Loader's resolution base"* | 探针实测 `file:///…/profiles/desktop/` ✅ |
+| 拦截层由**导入方路径**决定，不由"谁建了这棵子树"决定 | `findInterceptionLayer()` → `computeProfileLayer()` | 路径在 active profile 之下 → `{ kind: 'profile', active: true }` ✅ |
+| 该层 `active` | 同上 | ✅ |
+| 包名在 `localPackageNames` 里 | profile manifest 的 `dependencies` | `think_better: link:…` ✅ |
+
+四条齐了，`routeLocalPackage` 就返回 `route: { kind: 'native' }`，交给 Node 按普通 node_modules 解析。
+
+**所以当初那次失败最可能就是：`think_better` 还没写进 profile 的 `dependencies`**，`localPackageNames` 里没有它，路由被拒——跟"preset 子树"没关系。
+
+### 为什么不能发布绝对 file URL
+
+绝对 `file:` URL 在本机能跑，但**发布包不能带它**。指南 R22 明确：「发布包不得含作者机器的绝对路径」。原因不只是"换台机器路径就没了"——preset 里**任何一行失败 = 整棵子树失败**：
 
 ```ts
-// packages/boot/app-boot/src/profile-resolution/resolver.ts
-private routeLocalPackage(request, parentRoutes, resolution) {
-  ...
-  if (name === undefined || layer.kind !== 'profile' || !layer.active
-      || !resolution.localPackageNames.has(name)) return undefined
-  return { route: { kind: 'native' as const } }   // 放行给 Node
-}
+// agent-preset-registry/src/mount.ts
+const audit = await auditRows(tree)
+if (audit.failed.length > 0) throw new Error(audit.failed.join("\n"))
 ```
 
-只有 `layer.kind === 'profile'` 的导入方会走这条路，而 preset 的行挂在注册表拥有的**内存子树**里。
+也就是说别人装完拿到的**不是「少一个工具」，而是一个挂不上的模式**，报错还是不指向根因的 `never started`。这就是 0.4.0 改回包名的唯一理由。
 
-### 为什么 file URL 可以
-
-绝对 `file:` URL **完全不需要包解析**——Node 直接 import 那个 URL。而且 `compatibility-preflight.ts` 把这个情形**显式**写进了判断：
-
-```ts
-if (!isAbsolute(specifier) && !specifier.startsWith('.') && !specifier.startsWith('file:')) return undefined
-```
-
-所以这样的行会被当成普通行接纳。
+> **万一它哪天又不解析了**：本机临时把这一行改回绝对 `file://` URL 去定位，**但不要把那个改动提交/发布**。
 
 ### 真正的收益是作用域
 
@@ -245,10 +250,9 @@ if (!isAbsolute(specifier) && !specifier.startsWith('.') && !specifier.startsWit
 
 > **实测记录**（把没验证的结论跟验证过的分开写）
 >
-> - 用一个一次性的探针预设实测：preset 子树里按 file URL 挂一行，`IMPORTED` 和 `APPLIED` 都会发生 ✅
-> - 探针读到的 `ctx.baseUrl` 是 **profile 目录**（`file:///…/profiles/<name>/`），不是 `app.asar`。
-> - 这一点跟上面那条「裸包名不行」**是冲突的**：baseUrl 落在 profile 目录里，按 `routeLocalPackage` 的规则裸包名**本该**能解析。所以当初那次 `never started` 的确切原因**没有定论**（一个可能是当时 `think_better` 还没写进 profile 的 `dependencies`，于是 `localPackageNames` 里没有它）。
-> - 结论：**file URL 是验证过可行的那条路**；裸包名现在到底行不行，**没测过**。
+> - 用一个一次性的探针预设实测：preset 子树里按 file URL 挂一行，`IMPORTED` 和 `APPLIED` 都会发生 ✅（file URL 这条路本身是通的，只是不能发布。）
+> - 探针读到的 `ctx.baseUrl` 是 **profile 目录**（`file:///…/profiles/<name>/`），不是 `app.asar`——这正是上面那张表第一行的依据。
+> - **未实测**：0.4.0 换成包名之后的解析结果是从源码规则推出来的（四个条件逐条核过），不是重新探针测出来的。首次重启后请按[本地自测](#本地自测)那条清单确认一遍。
 
 ### 顺带记录：切换预设的窗口
 
@@ -332,16 +336,32 @@ dsh plugin --profile <你的profile> remove think_better
 pnpm test        # = node --import ./test/register.mjs test/behaviour.test.mjs
 ```
 
-覆盖：只注册一个工具、**从不调用 `tools.restrict()`**（可见性归作用域管，插件不该有可见性逻辑）、轮数计数与 `turn/start`/`agent/disposed` 的重置、每会话独立计数、`maxRounds` 行为、三档返回文案。
+覆盖：只注册一个工具、**从不调用 `tools.restrict()`**（可见性归作用域管，插件不该有可见性逻辑）、轮数计数与 `turn/start`/`agent/disposed` 的重置、每会话独立计数、`maxRounds` 行为、三档返回文案、空 `thought` 被拒且不计轮、**dispose 之后工具与监听器全部注销**（HMR 安全）。
 
 > 0.2.x 那版测的是「从会话日志推断当前预设 + 解除 deny」；那套逻辑已经删掉了，相应的断言也一起删了。
+
+**桩的边界（必须知道）**：`stub-dsh-tools.mjs` 的 `defineTool` 是原样返回，`stub-schemastery.mjs` 什么都接受。所以测试只能断言**本模块声明出来的对象形状**，**不能**证明真 `defineTool` 会接受它、也**不能**证明真 schemastery 会拒绝坏的 `maxRounds`。
+
+这不是偷懒：本机普通 Node 解析不到 `@deepseek-ai/*`（`ERR_MODULE_NOT_FOUND`），连 `import('think_better')` 从 profile 目录都失败——宿主里能跑，是因为 DSH 注入了宿主基准解析。所以「真实入口冒烟」在这台机器上只能手动做：
+
+**手动冒烟清单**（改完 `cordis.patch.yml` / `parameters` / `output` / `Config` 之后跑一遍）
+
+1. 重启 DSH，打开 **插件** 页 → 「更好的对话模式」的内置插件列表里，这一行应该显示**「更好的对话模式」/「Better Chat Mode」**（因为 `readPluginMeta` 现在解析得到包名，能读到 `locale/*.json`），而**不是**一条 `file:///…` 路径。显示路径 = 解析或元数据出了问题。
+2. 新建一个会话，模式选「更好的对话模式」，问一个需要多步推演的问题，确认模型会调用 `keep_thinking`，并且返回文案是「继续。（1/10，还剩 9 轮）」这一档。
+3. 想要硬证据就看会话日志里的 `request/header`——那是**实际发给模型**的 `tools` 数组：
+
+   ```sh
+   node tools/session-tools.mjs <会话 id 前缀> keep_thinking
+   ```
+
+   列表里有 `keep_thinking`，说明注册成功且作用域正确。
 
 ---
 
 ## 已知限制
 
 - `keep_thinking` 的可见性**由作用域决定，不由插件决定**：工具行挂在 `preset-chat` 里，所以只有「更好的对话模式」的 agent 看得见它。插件里没有任何可见性逻辑，也不需要。
-- 工具行用**绝对 file URL** 引入，所以换仓库位置、改目录名都要同步改 `cordis.patch.yml` 里那一行。
+- 工具行**按包名**（`think_better`）引入，所以仓库放哪、装到谁的机器上都一样。历史上用绝对 `file://` URL 的那几版**换机器就装不上**，详见[为什么不能发布绝对 file URL](#为什么不能发布绝对-file-url)。
 - **「更好的对话模式」的系统提示词不止人设那 5 行，工具也不止 11 个。** 因为 `persona.prefix` 只遮蔽部署级人设、没设 `complete: true`，harness 的工具引导段落（`read`/`grep`/`glob`/`web_search`/`present` 的用法）会照常注入；**Agent Teams 那一大段 `POLICY` 文字也会进来**。实测一轮下发 **25 个工具**：本 preset 挂的 11 个，加上 agent-team 的 9 个（`spawn_teammate`/`send_message`/`list_agents`/`wait_agent`/`interrupt_agent`/`team_task_*`）、`schedule_*` 4 个、`load_workspace_dependencies` 1 个。
 - **这 14 个不是"忘了挂"，是本插件收不掉。** `tool-agent-team` 和 `schedule` 都在 `agent/created` 时把工具注册进 **agent 自己的作用域**（`tool-agent-team/src/index.ts`：`const scoped = agent.ctx`；`schedule/src/index.ts`：`registerScheduleTools(ctx, agent.ctx, agent)`），而 `tools.restrict()` 只能遮蔽**全局**工具——拿作用域内的名字去 restrict 会直接抛 `unknown global tool`。所以「刻意没有挂的」那张表管不到它们，"把 deny 列表做成配置项"也解决不了；要让「更好的对话模式」真的干净，只能在整个 profile 层面不挂 `dsh-experimental-agent-team-profile` / `dsh-experimental-schedule-bundle`（所有模式一起去掉）。这 14 个里只有 `load_workspace_dependencies` 是全局注册。（本插件现在不做任何 restrict，所以这条只是说明"为什么连做成配置项也收不掉"。）
 - 已经被旧版本 deny 过的**运行中**会话，需要重启 DSH 后才会恢复（旧版把限制记录在插件内存里；现在改用作用域，重启后天然干净）。
